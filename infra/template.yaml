@@ -1,0 +1,33 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: 'Crypto E-Commerce Template — Serverless Payment Watcher & EventBridge Cron'
+
+Globals:
+  Function:
+    Timeout: 30
+    MemorySize: 256
+    Runtime: python3.13
+
+Resources:
+  PaymentWatcherFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../lambdas/payment_watcher/
+      Handler: lambda_function.lambda_handler
+      Description: 'Polls blockchain networks periodically to detect and confirm on-chain cryptocurrency payments'
+      Environment:
+        Variables:
+          ETHERSCAN_API_KEY: ''
+          SOLANA_RPC_URL: 'https://api.mainnet-beta.solana.com'
+      Events:
+        ReconciliationSchedule:
+          Type: Schedule
+          Properties:
+            Schedule: 'rate(2 minutes)'
+            Description: 'Trigger payment reconciliation poller every 2 minutes'
+            Enabled: true
+
+Outputs:
+  PaymentWatcherArn:
+    Description: 'Payment Watcher Lambda Function ARN'
+    Value: !GetAtt PaymentWatcherFunction.Arn
