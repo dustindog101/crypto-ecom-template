@@ -1,36 +1,35 @@
-# AGENTS.md — Crypto E-Commerce Template
+# AGENTS.md
 
-> **Purpose**: Machine-readable context for AI coding assistants. Read this before touching any file.
-
----
-
-## CRITICAL RULES (never violate these)
-
-1. **Dark mode first** — Primary background is `#09090B`. Design tokens defined in `app/globals.css`.
-2. **Glass cards** — All card surfaces use `.glass` utility class.
-3. **Prices display in amber** — Always use `.text-price` class for all cryptocurrency and fiat amounts.
-4. **Zero-Secret Rule** — Never hardcode merchant wallet addresses, API keys, or JWT secrets in code or git.
-5. **Atomic collision avoidance** — All payment intents must generate unique atomic nonces to guarantee distinct on-chain transfer amounts.
+Context and rules for AI coding assistants working in this repository.
 
 ---
 
-## Agent skills
+## Critical Rules
 
-### Issue tracker
-GitHub issue tracker via `gh` CLI. See `docs/agents/issue-tracker.md`.
-
-### Triage labels
-Canonical five-role triage labels. See `docs/agents/triage-labels.md`.
-
-### Domain docs
-Single-context domain glossary and ADRs. See `docs/agents/domain.md`.
+1. Dark mode only. The main background color is `#09090B`. Design variables are in `app/globals.css`.
+2. Glass surfaces. Use the `.glass` utility class for card surfaces.
+3. Prices in amber. Always use the `.text-price` class for prices and dollar figures.
+4. No hardcoded secrets. Do not commit API keys, private keys, or wallet addresses.
+5. Prevent collisions. Unique atomic amounts must use the `computeUniqueAmount` helper to avoid conflicting on-chain transfers.
 
 ---
 
-## Architecture Overview
+## Agent Skills Configuration
 
-- **Frontend**: Next.js 16 (App Router), React 19, TypeScript 5, Tailwind CSS v4, Zustand.
-- **Database**: Prisma ORM with dual-mode support (SQLite for dev, PostgreSQL/Neon for prod).
-- **Payments**: Decoupled multi-chain crypto payment engine (BTC, LTC, SOL, EVM USDC) with atomic collision avoidance.
-- **Storage**: Cloudflare R2 / AWS S3 presigned upload pipeline.
-- **Serverless**: Python 3.13 EventBridge payment watcher in `lambdas/payment_watcher/`.
+### Issue Tracker
+GitHub issues via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage Labels
+Canonical 5-role triage label set. See `docs/agents/triage-labels.md`.
+
+### Domain Docs
+Single-context domain glossary and ADRs. See `docs/agents/domain.md` and `CONTEXT.md`.
+
+---
+
+## Stack Summary
+
+- Framework: Next.js 16 (App Router), React 19, TypeScript 5, Tailwind CSS v4.
+- Database: Prisma ORM (SQLite for local dev, PostgreSQL for production).
+- Storage: Cloudflare R2 / AWS S3 presigned URLs.
+- Serverless: Python 3.13 Lambda poller under `lambdas/payment_watcher/`.
