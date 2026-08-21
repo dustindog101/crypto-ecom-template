@@ -104,7 +104,7 @@ The template ships with complete clean abstractions, zero hardcoded branding, fu
 ---
 
 ## Out of Scope
-- Direct custodial credit card processing (Stripe / PayPal) — this template is strictly non-custodial cryptocurrency.
+- Direct custodial credit card processing (Stripe / PayPal): this template is strictly non-custodial cryptocurrency.
 - Complex multi-warehouse inventory physical shipping logistics (can be integrated via external webhooks).
 - Native iOS / Android mobile applications (storefront is fully responsive mobile-first PWA).
 

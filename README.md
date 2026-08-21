@@ -1,128 +1,207 @@
-# Crypto E-Commerce Starter Template
+<div align="center">
 
-A self-custodial cryptocurrency e-commerce template built with Next.js 16 (App Router), TypeScript, Tailwind CSS v4, Prisma ORM, and Python 3.13 serverless payment watchers.
+# Crypto E-Commerce Template
 
-No third-party payment gateways, no monthly fees, and zero hardcoded secrets.
+### Self-custodial, open-source e-commerce platform with native cryptocurrency payments.
 
-[![Next.js 16](https://img.shields.io/badge/Next.js-16-black)](https://nextjs.org/)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.7-blue)](https://www.typescriptlang.org/)
-[![Tailwind CSS v4](https://img.shields.io/badge/Tailwind-v4-38bdf8)](https://tailwindcss.com/)
-[![Prisma](https://img.shields.io/badge/Prisma-6-2D3748)](https://www.prisma.io/)
-[![Python](https://img.shields.io/badge/Python-3.13-3776AB)](https://www.python.org/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+No payment processors. No monthly fees. No customer tracking.
+
+```
+git clone https://github.com/dustindog101/crypto-ecom-template.git
+cd crypto-ecom-template && npm install && npm run setup
+```
+
+<br />
+
+[![Next.js 16](https://img.shields.io/badge/Next.js-16.1-000000?style=flat-square&logo=nextdotjs&logoColor=white)](https://nextjs.org/)
+[![React 19](https://img.shields.io/badge/React-19.0-23272f?style=flat-square&logo=react&logoColor=58c4dc)](https://react.dev/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.7-3178c6?style=flat-square&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![Tailwind CSS](https://img.shields.io/badge/Tailwind-v4.0-06b6d4?style=flat-square&logo=tailwindcss&logoColor=white)](https://tailwindcss.com/)
+[![Prisma](https://img.shields.io/badge/Prisma-6.4-2d3748?style=flat-square&logo=prisma&logoColor=white)](https://www.prisma.io/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-emerald?style=flat-square)](LICENSE)
+
+<br />
+
+[Quickstart](#quickstart) • [Why This Exists](#why-this-exists) • [Supported Assets](#supported-assets) • [How Payments Work](#how-payments-work) • [Features](#features) • [Deployment](#production-deployment)
+
+</div>
 
 ---
 
-## Core Features
+## Why This Exists
 
-- **Direct Self-Custody Payments**: Payments go directly to your own wallet addresses. Supports Bitcoin (BTC), Litecoin (LTC), Solana (SOL), and USDC on Ethereum, Base, Polygon, and Solana.
-- **Unique-Amount Matching**: Each order generates a tiny deterministic sub-cent offset (1 to 9999 atomic units). This identifies incoming transactions on a single deposit address without deriving a new address per order or causing collisions.
-- **Custom Product Schemas**: Sell standard products, digital downloads, or custom items with user-submitted text and file upload fields defined in JSON.
-- **Guest Checkout**: Customers can buy without creating an account. Every order gets a private tracking code (`/track/[code]`).
-- **Reseller Portal**: White-label storefront routes (`/r/[slug]`) with tiered wholesale volume pricing.
-- **Affiliate System**: Referral tracking links (`?ref=CODE`), cookie attribution, and an affiliate dashboard with commission ledgers.
-- **Admin Dashboard**: Live metrics, order fulfillment, carrier tracking, product and coupon management, and payment gateway configuration at `/admin`.
-- **R2 / S3 File Uploads**: Direct browser-to-bucket presigned uploads for custom customer attachments and digital product delivery.
-- **Zero Secrets in Source**: No merchant wallets, database URLs, or API keys are stored in the repo. An interactive CLI (`npm run setup`) generates local secrets.
+Most e-commerce platforms force merchants into custodial payment gateways with 3% fees, chargeback fraud, rolling reserves, and invasive customer identity checks.
+
+This template is built for developers and merchants who want a sovereign alternative:
+
+1. **Direct to your wallet**: Customer payments go straight to your own address. Funds never touch a third-party custodial account.
+2. **No address derivation complexity**: Instead of running a heavy HD wallet server to create new addresses for every cart, the engine uses a single deposit address per coin and appends a tiny unique atomic offset (1 to 9999 units) to identify the transaction.
+3. **Private and frictionless**: Customers can buy as guests with just a contact handle or email. Every order gets a public tracking code (`/track/[code]`).
+4. **Zero secrets in source**: No API keys, database credentials, or deposit addresses are hardcoded. Everything is configurable through `.env` and an interactive terminal wizard.
+
+---
+
+## Supported Assets
+
+| Coin / Token | Network | Verification Method | Min Confirmations |
+| :--- | :--- | :--- | :--- |
+| **Bitcoin (BTC)** | Bitcoin Mainnet | Esplora / Mempool API | 1 block |
+| **Litecoin (LTC)** | Litecoin Mainnet | Esplora API | 2 blocks |
+| **Solana (SOL)** | Solana Mainnet | Solana JSON-RPC | Finalized (32 confs) |
+| **USDC (Ethereum)** | Ethereum ERC-20 | Etherscan V2 API | 12 blocks |
+| **USDC (Base)** | Base EVM | Basescan / Blockscout | 10 blocks |
+| **USDC (Polygon)** | Polygon PoS | Polygonscan | 30 blocks |
+| **USDC (Solana)** | Solana SPL | Solana JSON-RPC | Finalized (32 confs) |
+
+All networks can be enabled or disabled individually in the admin settings at `/admin/payments`.
 
 ---
 
 ## Architecture
 
 ```
-[ Customer Browser ]
-       │
-       ├─► 1. Select items and configure custom inputs
-       ├─► 2. Enter shipping details (guest or logged in)
-       ├─► 3. Pick payment asset (BTC, LTC, SOL, EVM USDC)
-       │
-       ▼
-[ Next.js API Routes ]
-       │
-       ├─► 4. Fetch exchange rate (CoinGecko)
-       ├─► 5. Generate unique atomic amount offset
-       ├─► 6. Create HMAC-signed invoice session
-       │
-       ▼
-[ Prisma Database (SQLite or Postgres) ] ◄───┐
-       ▲                                      │
-       │                                      │ 7. Poll and confirm
-       │                                      │
-[ Python Payment Watcher Lambda ] ────────────┘
-       │
-       ▼
-[ Blockchain Explorers & RPCs ]
- (Esplora, Etherscan V2, Solana RPC)
+                       CUSTOMER BROWSER
+                              │
+             ┌────────────────┴────────────────┐
+             │ 1. Browse catalog & variants    │
+             │ 2. Fill optional custom fields  │
+             │ 3. Pick crypto rail (BTC, SOL)  │
+             └────────────────┬────────────────┘
+                              ▼
+                     NEXT.JS API LAYER
+                              │
+             ┌────────────────┴────────────────┐
+             │ 4. Fetch live exchange rate     │
+             │ 5. Calculate atomic nonce       │
+             │ 6. Issue signed HMAC invoice    │
+             └────────────────┬────────────────┘
+                              ▼
+                     PRISMA DATABASE
+                     (SQLite / Postgres)
+                              ▲
+                              │ 7. Query active intents
+                              │    and update confirmations
+                              │
+                 PAYMENT WATCHER WORKER
+                 (Python 3.13 / Cron)
+                              │
+                              ▼
+                    BLOCKCHAIN NETWORKS
+               (Esplora, Etherscan, Solana)
 ```
 
 ---
 
-## Quick Start
+## Quickstart
 
-### 1. Install dependencies
+### Prerequisites
+- Node.js 20 or newer (or Bun 1.1+)
+- Git
+
+### 1. Clone the repository
 ```bash
 git clone https://github.com/dustindog101/crypto-ecom-template.git
 cd crypto-ecom-template
+```
+
+### 2. Install dependencies
+```bash
 npm install
 ```
 
-### 2. Run the setup wizard
-The wizard generates secure 256-bit keys and creates your `.env.local` file:
+### 3. Run the setup wizard
+The wizard prompts for your store name and generates 256-bit cryptographically secure keys for your `.env.local` file:
 ```bash
 npm run setup
 ```
 
-### 3. Initialize the database
-Push the Prisma schema to SQLite and seed starter products and admin credentials:
+### 4. Initialize database and seed starter products
 ```bash
 npm run db:push
 npm run db:seed
 ```
 
-### 4. Start the dev server
+### 5. Start the local server
 ```bash
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) in your browser.
-
-Default routes:
-- Storefront: `http://localhost:3000`
-- Order Tracking: `http://localhost:3000/track`
-- Admin Dashboard: `http://localhost:3000/admin` (Login: `admin@cryptostore.local` / `adminPassword123!`)
-- Reseller Storefront Demo: `http://localhost:3000/r/apex-store`
+Visit the running store:
+- **Storefront**: [http://localhost:3000](http://localhost:3000)
+- **Order Tracking**: [http://localhost:3000/track](http://localhost:3000/track)
+- **Admin Dashboard**: [http://localhost:3000/admin](http://localhost:3000/admin)
+  - Default Email: `admin@cryptostore.local`
+  - Default Password: `adminPassword123!`
+- **Reseller Portal Demo**: [http://localhost:3000/r/apex-store](http://localhost:3000/r/apex-store)
 
 ---
 
-## Payment Flow
+## How Payments Work
 
 ```mermaid
 sequenceDiagram
     autonumber
-    actor Buyer as Customer
-    participant Web as Next.js Storefront
+    actor Customer
+    participant Frontend as Storefront (Next.js)
     participant API as Payment API
-    participant DB as Database
+    participant DB as Database (Prisma)
     participant Watcher as Payment Watcher
     participant Chain as Blockchain
 
-    Buyer->>Web: Adds items to cart and selects asset (e.g. BTC)
-    Web->>API: POST /api/payments/intent
-    API->>API: Fetch current rate and calculate unique atomic amount
-    API->>DB: Save PaymentIntent (PENDING)
-    API-->>Web: Return deposit address, exact amount, and QR code
-    Web-->>Buyer: Show invoice modal with 15s polling
+    Customer->>Frontend: Adds item to cart ($50.00 USD) and picks BTC
+    Frontend->>API: POST /api/payments/intent
+    API->>API: Fetch BTC price ($95,000) -> Base: 0.00052631 BTC
+    API->>DB: Check pending intents to avoid amount collisions
+    API->>API: Add unique sub-cent offset -> 0.00053842 BTC
+    API->>DB: Save PaymentIntent (status: PENDING)
+    API-->>Frontend: Return deposit address, exact amount, and QR code
+    Frontend-->>Customer: Render invoice modal (polls every 15s)
 
-    Buyer->>Chain: Sends exact crypto payment
-    loop Every 15s (Client) or 2m (Watcher Lambda)
+    Customer->>Chain: Broadcasts transaction to merchant address
+    loop Every 15 seconds (Client) or 2 minutes (Watcher)
         Watcher->>Chain: Check deposit address for matching amount
-        Chain-->>Watcher: Return tx hash and confirmations
+        Chain-->>Watcher: Return transaction hash & confirmation count
         Watcher->>DB: Update Intent status (DETECTED / CONFIRMED)
     end
 
-    DB-->>Web: Return status CONFIRMED
-    Web-->>Buyer: Show payment confirmed screen and order details
+    DB-->>Frontend: Intent confirmed
+    Frontend-->>Customer: Display order confirmation and tracking code
 ```
+
+### Collision Avoidance
+If two customers checkout simultaneously for the same dollar total, the engine checks existing pending intents on that deposit address and picks a different 4-digit nonce. This ensures every transaction amount is unique, making identification deterministic.
+
+---
+
+## Features
+
+### Storefront
+- Clean dark theme with responsive glass card styling.
+- Dynamic variant selection with real-time price updates.
+- Custom field schema support: products can define required text fields, select dropdowns, or file upload slots via JSON.
+- Persistent slide-out cart drawer with promo code calculation.
+- Frictionless guest checkout with automatic order tracking code generation.
+
+### Admin Dashboard (`/admin`)
+- Real-time revenue, total order count, and payment conversion KPIs.
+- Order management with fulfillment status, carrier selection, and tracking numbers.
+- Product and variant manager with custom input schema builder.
+- Coupon manager with percentage and fixed discounts, minimum cart values, and expiration dates.
+- Payments Hub to configure merchant deposit addresses, set required block confirmations, and inspect the live transaction ledger.
+
+### White-Label Resellers (`/r/[slug]`)
+- Custom partner storefront URLs (`/r/apex-store`).
+- Dedicated reseller portal (`/reseller`) showing wholesale volume tiers.
+- Automatic wholesale discount calculation based on ordered quantity.
+
+### Affiliate Referral Hub (`/affiliate`)
+- Custom referral links (`/?ref=VIP2026`) with cookie attribution.
+- Partner dashboard displaying total clicks, conversions, pending earnings, and payout balance.
+
+### File Storage Pipeline
+- Direct browser-to-bucket presigned PUT uploads for customer design files and documents.
+- Compatible with Cloudflare R2 and AWS S3.
+- Authenticated presigned GET downloads for digital product fulfillment.
 
 ---
 
@@ -131,51 +210,110 @@ sequenceDiagram
 ```
 crypto-ecom-template/
 ├── app/
-│   ├── (storefront)/         # Product catalog, detail page, cart, checkout
-│   ├── checkout/pay/[id]/    # Live crypto invoice modal and QR display
-│   ├── track/                # Public order tracking by tracking code
-│   ├── admin/                # Admin overview, orders, products, payments hub
+│   ├── (storefront)/         # Home catalog, cart, product detail
+│   ├── checkout/             # Guest and account checkout
+│   ├── checkout/pay/[id]/    # Live invoice modal, QR generator, and poller
+│   ├── track/                # Public order lookup page
+│   ├── admin/                # Backoffice KPI dashboard, orders, products, payments
 │   ├── r/[resellerSlug]/     # White-label partner storefront routes
-│   ├── reseller/             # Reseller wholesale management dashboard
+│   ├── reseller/             # Reseller wholesale management portal
 │   ├── affiliate/            # Affiliate referral and commission portal
 │   └── api/                  # API routes (orders, payments, uploads, admin)
-├── components/               # UI components (Navbar, CartDrawer, ProductCard)
-├── lambdas/                  # Python 3.13 serverless services
+├── components/               # UI components (Navbar, CartDrawer, ProductCard, UploadSlot)
+├── lambdas/                  # Python 3.13 serverless background services
 │   └── payment_watcher/      # Blockchain poller (Esplora, Etherscan, Solana RPC)
 ├── lib/
-│   ├── payments/             # Crypto math, collision avoidance, address validators
-│   ├── storage/              # R2 and S3 presigned upload client
-│   ├── cartStore.ts          # Zustand cart store with local persistence
+│   ├── payments/             # Crypto math, atomic collision engine, address validators
+│   ├── storage/              # Cloudflare R2 / AWS S3 presigned URL client
+│   ├── cartStore.ts          # Zustand shopping cart store
 │   └── prisma.ts             # Prisma client singleton
 ├── prisma/
 │   └── schema.prisma         # Database schema (SQLite for dev, Postgres for prod)
 ├── scripts/
 │   ├── setup-wizard.ts       # Interactive setup CLI
 │   ├── seed.ts               # Starter catalog and admin seeder
+│   ├── deploy-lambdas.sh     # Watcher packager script
 │   └── audit-secrets.ts      # Secret scanner script
 └── docs/                     # Specifications, ADRs, and agent context
 ```
 
 ---
 
-## Production Deployment
+## Configuration Reference
 
-See [SETUP.md](SETUP.md) for full instructions:
-- **Web App**: Deploy to Vercel or any Node.js host.
-- **Database**: Use Neon, Supabase, or any PostgreSQL instance.
-- **Asset Storage**: Cloudflare R2 or AWS S3.
-- **Payment Watcher**: Deploy `lambdas/payment_watcher` to AWS Lambda with an EventBridge rate rule (`rate(2 minutes)`).
+Key variables in `.env` or `.env.local`:
+
+| Key | Required | Description |
+| :--- | :--- | :--- |
+| `DATABASE_URL` | Yes | SQLite path (`file:./dev.db`) or PostgreSQL connection string |
+| `AUTH_SECRET` | Yes | 32-byte base64 secret for user session tokens |
+| `PAY_TOKEN_SECRET` | Yes | 32-byte hex secret for signing guest invoice sessions |
+| `CRON_SECRET` | Yes | Random secret protecting background reconciliation endpoints |
+| `CRYPTO_PAYMENTS_ENABLED` | Yes | Set to `true` to enable crypto checkout |
+| `NEXT_PUBLIC_SITE_NAME` | No | Store title displayed in the header |
+| `COINGECKO_API_KEY` | No | Optional CoinGecko Pro API key for higher rate limits |
+| `ETHERSCAN_API_KEY` | No | Optional Etherscan API key for EVM transaction indexing |
+| `SOLANA_RPC_URL` | No | Custom Solana RPC endpoint (defaults to public mainnet) |
+| `R2_ACCOUNT_ID` | No | Cloudflare R2 Account ID for file uploads |
+| `R2_ACCESS_KEY_ID` | No | Cloudflare R2 Access Key ID |
+| `R2_SECRET_ACCESS_KEY` | No | Cloudflare R2 Secret Access Key |
+| `RESEND_API_KEY` | No | Resend API key for transactional emails |
 
 ---
 
-## Security
+## Production Deployment
 
-- **No Secrets in Git**: All API keys, RPC URLs, and wallet addresses live strictly in environment variables.
-- **HMAC Signed Sessions**: Guest invoice tracking uses signed tokens with a 48-hour expiration.
-- **Safe Comparisons**: Token checks use `crypto.timingSafeEqual` to prevent timing attacks.
+### 1. Database (Neon Postgres)
+Create a free serverless PostgreSQL instance on [neon.tech](https://neon.tech) and copy the connection string.
+
+### 2. Web Application (Vercel)
+1. Push your repository to GitHub.
+2. Import the project in Vercel.
+3. Add the required environment variables from the table above.
+4. Set the build command to:
+   ```bash
+   prisma generate && next build
+   ```
+5. Run the remote database migration:
+   ```bash
+   DATABASE_URL="postgres://..." npx prisma db push
+   DATABASE_URL="postgres://..." npm run db:seed
+   ```
+
+### 3. Serverless Payment Watcher (AWS Lambda)
+To run continuous background reconciliation outside of client visits:
+```bash
+./scripts/deploy-lambdas.sh
+cd infra && sam build && sam deploy --guided
+```
+
+---
+
+## Running Tests
+
+Run the automated test suite covering crypto math, collision avoidance, and address validators:
+
+```bash
+npm test
+```
+
+Scan the codebase to verify that no keys or addresses have been accidentally committed:
+
+```bash
+npx tsx scripts/audit-secrets.ts
+```
+
+---
+
+## Contributing
+
+Contributions are welcome. Please ensure that:
+1. All changes pass existing tests (`npm test`).
+2. No secrets, private keys, or wallet addresses are added to git.
+3. Code adheres to the single-context domain terms in `CONTEXT.md`.
 
 ---
 
 ## License
 
-MIT (see [LICENSE](LICENSE)).
+Released under the [MIT License](LICENSE). Built for the open-source self-custodial commerce ecosystem.
