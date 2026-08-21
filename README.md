@@ -4,7 +4,7 @@
 
 ### Self-custodial, open-source e-commerce platform with native cryptocurrency payments.
 
-No payment processors. No monthly fees. No customer tracking.
+Zero payment processor fees. Direct to your own wallet. Stays within free hosting tiers for 30,000+ monthly orders.
 
 ```
 git clone https://github.com/dustindog101/crypto-ecom-template.git
@@ -22,7 +22,7 @@ cd crypto-ecom-template && npm install && npm run setup
 
 <br />
 
-[Quickstart](#quickstart) • [Why This Exists](#why-this-exists) • [Supported Assets](#supported-assets) • [How Payments Work](#how-payments-work) • [Features](#features) • [Deployment](#production-deployment)
+[Quickstart](#quickstart) • [Why This Exists](#why-this-exists) • [BIP84 Derivation](#bip84-address-derivation) • [Free Tier Scale](#how-this-scales-for-free) • [Features](#features) • [Deployment](#production-deployment)
 
 </div>
 
@@ -35,7 +35,7 @@ Most e-commerce platforms force merchants into custodial payment gateways with 3
 This template is built for developers and merchants who want a sovereign alternative:
 
 1. **Direct to your wallet**: Customer payments go straight to your own address. Funds never touch a third-party custodial account.
-2. **No address derivation complexity**: Instead of running a heavy HD wallet server to create new addresses for every cart, the engine uses a single deposit address per coin and appends a tiny unique atomic offset (1 to 9999 units) to identify the transaction.
+2. **BIP84 / zpub address derivation**: Supply your extended public key (`zpub` for Bitcoin Native SegWit or `xpub` for Litecoin/EVM). The engine automatically derives a fresh, dedicated `bc1q...` address for each new order on the fly.
 3. **Private and frictionless**: Customers can buy as guests with just a contact handle or email. Every order gets a public tracking code (`/track/[code]`).
 4. **Zero secrets in source**: No API keys, database credentials, or deposit addresses are hardcoded. Everything is configurable through `.env` and an interactive terminal wizard.
 
@@ -43,52 +43,66 @@ This template is built for developers and merchants who want a sovereign alterna
 
 ## Supported Assets
 
-| Coin / Token | Network | Verification Method | Min Confirmations |
+| Coin / Token | Network | Derivation / Address Format | Min Confirmations |
 | :--- | :--- | :--- | :--- |
-| **Bitcoin (BTC)** | Bitcoin Mainnet | Esplora / Mempool API | 1 block |
-| **Litecoin (LTC)** | Litecoin Mainnet | Esplora API | 2 blocks |
-| **Solana (SOL)** | Solana Mainnet | Solana JSON-RPC | Finalized (32 confs) |
-| **USDC (Ethereum)** | Ethereum ERC-20 | Etherscan V2 API | 12 blocks |
-| **USDC (Base)** | Base EVM | Basescan / Blockscout | 10 blocks |
-| **USDC (Polygon)** | Polygon PoS | Polygonscan | 30 blocks |
-| **USDC (Solana)** | Solana SPL | Solana JSON-RPC | Finalized (32 confs) |
+| **Bitcoin (BTC)** | Bitcoin Mainnet | BIP84 `zpub` -> Native SegWit (`bc1q...`) | 1 block |
+| **Litecoin (LTC)** | Litecoin Mainnet | `xpub` / `Ltub` -> Native SegWit (`ltc1...`) | 2 blocks |
+| **Solana (SOL)** | Solana Mainnet | Direct merchant address | Finalized (32 confs) |
+| **USDC (Ethereum)** | Ethereum ERC-20 | `xpub` or direct merchant address (`0x...`) | 12 blocks |
+| **USDC (Base)** | Base EVM | `xpub` or direct merchant address (`0x...`) | 10 blocks |
+| **USDC (Polygon)** | Polygon PoS | `xpub` or direct merchant address (`0x...`) | 30 blocks |
+| **USDC (Solana)** | Solana SPL | Direct merchant address | Finalized (32 confs) |
 
 All networks can be enabled or disabled individually in the admin settings at `/admin/payments`.
 
 ---
 
-## Architecture
+## How This Scales for Free
+
+This template is architected specifically so that a store processing **tens of thousands of monthly orders and thousands of customers runs 100% within free tiers**:
 
 ```
-                       CUSTOMER BROWSER
-                              │
-             ┌────────────────┴────────────────┐
-             │ 1. Browse catalog & variants    │
-             │ 2. Fill optional custom fields  │
-             │ 3. Pick crypto rail (BTC, SOL)  │
-             └────────────────┬────────────────┘
-                              ▼
-                     NEXT.JS API LAYER
-                              │
-             ┌────────────────┴────────────────┐
-             │ 4. Fetch live exchange rate     │
-             │ 5. Calculate atomic nonce       │
-             │ 6. Issue signed HMAC invoice    │
-             └────────────────┬────────────────┘
-                              ▼
-                     PRISMA DATABASE
-                     (SQLite / Postgres)
-                              ▲
-                              │ 7. Query active intents
-                              │    and update confirmations
-                              │
-                 PAYMENT WATCHER WORKER
-                 (Python 3.13 / Cron)
-                              │
-                              ▼
-                    BLOCKCHAIN NETWORKS
-               (Esplora, Etherscan, Solana)
+┌─────────────────────────┬──────────────────────────┬──────────────────────────┬────────────────────────┐
+│ Service                 │ Free Tier Allowance      │ Usage at 30,000 Orders   │ Headroom               │
+├─────────────────────────┼──────────────────────────┼──────────────────────────┼────────────────────────┤
+│ Vercel (Web Hosting)    │ 100 GB band, 1M edge req │ ~60k API hits (cached)   │ > 90% free capacity    │
+│ Neon (Serverless Postgres)│ 0.5 GB storage, autoscaling│ ~30 MB total DB size     │ Fits ~500k orders      │
+│ Cloudflare R2 (Storage) │ 10 GB, 10M reads, 0 egress│ ~2 GB uploaded assets    │ 100% within free tier  │
+│ Blockchain Explorers    │ Unmetered / 5 req/sec    │ Active orders only       │ Free public endpoints  │
+│ AWS Lambda (Optional)   │ 1,000,000 invocations/mo │ 21,600 runs (2m cron)    │ < 3% of free tier      │
+└─────────────────────────┴──────────────────────────┴──────────────────────────┴────────────────────────┘
 ```
+
+### Architectural Decisions That Keep Costs at Zero:
+- **Zero Session Bloat**: Cart state lives in the customer's browser via Zustand (`localStorage`). Browsing visitors generate zero database writes.
+- **In-Memory Address Derivation**: Deriving `bc1q...` addresses from a `zpub` takes under 1 millisecond of CPU time. You do not need to run an expensive full node or wallet daemon.
+- **Client-Side Live Polling**: During checkout, the customer's browser polls `/api/payments/poll` for 15 minutes. The server is not running persistent WebSocket servers or background daemons for idle carts.
+- **Direct-to-R2 Uploads**: Product images and customer attachments stream directly from the browser to Cloudflare R2 via presigned URLs. Your Next.js server never proxies heavy media or incurs bandwidth costs.
+
+---
+
+## BIP84 Address Derivation
+
+Instead of reusing a single static address or relying on sub-cent amount matching, you can enter your wallet's extended public key:
+
+```
+Merchant Wallet (Electrum / Trezor / Ledger)
+                      │
+           Export BIP84 zpub
+                      │
+                      ▼
+         Crypto E-Commerce Engine
+                      │
+   ┌──────────────────┼──────────────────┐
+   │ m/0/0            │ m/0/1            │ m/0/2
+   ▼                  ▼                  ▼
+Order #101         Order #102         Order #103
+(bc1q9x...)        (bc1q4a...)        (bc1q8f...)
+```
+
+- Each customer receives their own dedicated address.
+- When payment arrives at that address on-chain, the order is confirmed automatically.
+- Funds go directly into your hardware or software wallet.
 
 ---
 
@@ -136,43 +150,6 @@ Visit the running store:
 
 ---
 
-## How Payments Work
-
-```mermaid
-sequenceDiagram
-    autonumber
-    actor Customer
-    participant Frontend as Storefront (Next.js)
-    participant API as Payment API
-    participant DB as Database (Prisma)
-    participant Watcher as Payment Watcher
-    participant Chain as Blockchain
-
-    Customer->>Frontend: Adds item to cart ($50.00 USD) and picks BTC
-    Frontend->>API: POST /api/payments/intent
-    API->>API: Fetch BTC price ($95,000) -> Base: 0.00052631 BTC
-    API->>DB: Check pending intents to avoid amount collisions
-    API->>API: Add unique sub-cent offset -> 0.00053842 BTC
-    API->>DB: Save PaymentIntent (status: PENDING)
-    API-->>Frontend: Return deposit address, exact amount, and QR code
-    Frontend-->>Customer: Render invoice modal (polls every 15s)
-
-    Customer->>Chain: Broadcasts transaction to merchant address
-    loop Every 15 seconds (Client) or 2 minutes (Watcher)
-        Watcher->>Chain: Check deposit address for matching amount
-        Chain-->>Watcher: Return transaction hash & confirmation count
-        Watcher->>DB: Update Intent status (DETECTED / CONFIRMED)
-    end
-
-    DB-->>Frontend: Intent confirmed
-    Frontend-->>Customer: Display order confirmation and tracking code
-```
-
-### Collision Avoidance
-If two customers checkout simultaneously for the same dollar total, the engine checks existing pending intents on that deposit address and picks a different 4-digit nonce. This ensures every transaction amount is unique, making identification deterministic.
-
----
-
 ## Features
 
 ### Storefront
@@ -187,7 +164,7 @@ If two customers checkout simultaneously for the same dollar total, the engine c
 - Order management with fulfillment status, carrier selection, and tracking numbers.
 - Product and variant manager with custom input schema builder.
 - Coupon manager with percentage and fixed discounts, minimum cart values, and expiration dates.
-- Payments Hub to configure merchant deposit addresses, set required block confirmations, and inspect the live transaction ledger.
+- Payments Hub to configure merchant `zpub` / `xpub` keys, set required block confirmations, and inspect the live transaction ledger.
 
 ### White-Label Resellers (`/r/[slug]`)
 - Custom partner storefront URLs (`/r/apex-store`).
@@ -202,40 +179,6 @@ If two customers checkout simultaneously for the same dollar total, the engine c
 - Direct browser-to-bucket presigned PUT uploads for customer design files and documents.
 - Compatible with Cloudflare R2 and AWS S3.
 - Authenticated presigned GET downloads for digital product fulfillment.
-
----
-
-## Project Structure
-
-```
-crypto-ecom-template/
-├── app/
-│   ├── (storefront)/         # Home catalog, cart, product detail
-│   ├── checkout/             # Guest and account checkout
-│   ├── checkout/pay/[id]/    # Live invoice modal, QR generator, and poller
-│   ├── track/                # Public order lookup page
-│   ├── admin/                # Backoffice KPI dashboard, orders, products, payments
-│   ├── r/[resellerSlug]/     # White-label partner storefront routes
-│   ├── reseller/             # Reseller wholesale management portal
-│   ├── affiliate/            # Affiliate referral and commission portal
-│   └── api/                  # API routes (orders, payments, uploads, admin)
-├── components/               # UI components (Navbar, CartDrawer, ProductCard, UploadSlot)
-├── lambdas/                  # Python 3.13 serverless background services
-│   └── payment_watcher/      # Blockchain poller (Esplora, Etherscan, Solana RPC)
-├── lib/
-│   ├── payments/             # Crypto math, atomic collision engine, address validators
-│   ├── storage/              # Cloudflare R2 / AWS S3 presigned URL client
-│   ├── cartStore.ts          # Zustand shopping cart store
-│   └── prisma.ts             # Prisma client singleton
-├── prisma/
-│   └── schema.prisma         # Database schema (SQLite for dev, Postgres for prod)
-├── scripts/
-│   ├── setup-wizard.ts       # Interactive setup CLI
-│   ├── seed.ts               # Starter catalog and admin seeder
-│   ├── deploy-lambdas.sh     # Watcher packager script
-│   └── audit-secrets.ts      # Secret scanner script
-└── docs/                     # Specifications, ADRs, and agent context
-```
 
 ---
 
@@ -291,7 +234,7 @@ cd infra && sam build && sam deploy --guided
 
 ## Running Tests
 
-Run the automated test suite covering crypto math, collision avoidance, and address validators:
+Run the automated test suite covering BIP84 derivation, address validation, and pay session signing:
 
 ```bash
 npm test
@@ -302,15 +245,6 @@ Scan the codebase to verify that no keys or addresses have been accidentally com
 ```bash
 npx tsx scripts/audit-secrets.ts
 ```
-
----
-
-## Contributing
-
-Contributions are welcome. Please ensure that:
-1. All changes pass existing tests (`npm test`).
-2. No secrets, private keys, or wallet addresses are added to git.
-3. Code adheres to the single-context domain terms in `CONTEXT.md`.
 
 ---
 

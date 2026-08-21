@@ -204,17 +204,17 @@ model Address {
   @@index([userId])
 }
 
-// ============ CRYPTO PAYMENT GATEWAY ============
+// ============ CRYPTO PAYMENT GATEWAY (BIP84 / XPUB DERIVATION) ============
 
 model PaymentIntent {
   id              String    @id @default(cuid())
   orderId         String    @unique
   userId          String?
   asset           String    // btc | ltc | sol | usdc_ethereum | usdc_base | usdc_polygon | usdc_solana
-  depositAddress  String
-  expectedAmount  String    // Human-readable decimal string e.g. "0.00154210"
-  expectedAtomic  String    // Exact integer string for atomic comparison (Satoshis/Wei/Lamports)
-  uniqueSuffix    Int       // Deterministic random sub-cent nonce (1-9999)
+  depositAddress  String    // Unique derived address from merchant zpub/xpub for this order
+  addressIndex    Int?      // Child derivation index (m/0/index)
+  expectedAmount  String    // Exact human-readable decimal amount e.g. "0.00052632"
+  expectedAtomic  String    // Exact atomic units (Satoshis/Wei/Lamports)
   baseTotalUsd    Float
   exchangeRate    Float?
   status          String    @default("PENDING") // PENDING | DETECTED | CONFIRMED | EXPIRED | CANCELLED
@@ -235,7 +235,7 @@ model PaymentIntent {
 
 model PaymentSettings {
   id                     String   @id @default("site") // Singleton
-  paymentGateways        String   // JSON Record<AssetId, {enabled: boolean, address: string, minConfirmations: number}>
+  paymentGateways        String   // JSON Record<AssetId, {enabled: boolean, xpub: string, address: string, nextIndex: number, minConfirmations: number}>
   paymentIntentTtlHours  Int      @default(48)
   updatedAt              DateTime @updatedAt
 }

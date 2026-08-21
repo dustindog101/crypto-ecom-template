@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { CryptoAssetId, CRYPTO_ASSETS } from '@/lib/payments/types';
 import { getExchangeRate } from '@/lib/payments/rates';
-import { computeUniqueAmount } from '@/lib/payments/amounts';
+import { deriveAddressForAsset } from '@/lib/payments/bip32Derive';
 import { validateCryptoAddress } from '@/lib/payments/validation';
 
 export async function POST(req: NextRequest) {
@@ -39,7 +39,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ intent: order.paymentIntent });
     }
 
-    // 3. Fetch Settings for Merchant Deposit Address
+    // 3. Fetch Merchant Gateway Settings
     const settings = await prisma.paymentSettings.findUnique({
       where: { id: 'site' },
     });
@@ -47,43 +47,52 @@ export async function POST(req: NextRequest) {
     const gateways = JSON.parse(settings?.paymentGateways || '{}');
     const gw = gateways[asset];
 
-    if (!gw || !gw.enabled || !gw.address) {
-      return NextResponse.json({ error: `Payment method ${asset} is not configured` }, { status: 400 });
+    if (!gw || !gw.enabled || (!gw.address && !gw.xpub)) {
+      return NextResponse.json({ error: `Payment method ${asset} is not enabled or configured` }, { status: 400 });
     }
 
-    const depositAddress = gw.address.trim();
-    if (!validateCryptoAddress(asset, depositAddress)) {
-      return NextResponse.json({ error: 'Configured deposit address is invalid' }, { status: 500 });
+    const merchantKey = (gw.xpub || gw.address || '').trim();
+    const currentIndex = typeof gw.nextIndex === 'number' ? gw.nextIndex : 0;
+
+    // 4. Derive Unique Dedicated Address for this Order (BIP84 zpub / BIP44 xpub or static)
+    let derivedAddress = merchantKey;
+    let derivedIndex: number | null = null;
+
+    if (merchantKey.startsWith('zpub') || merchantKey.startsWith('xpub') || merchantKey.startsWith('ypub') || merchantKey.startsWith('Ltub')) {
+      derivedAddress = deriveAddressForAsset(asset, merchantKey, currentIndex);
+      derivedIndex = currentIndex;
+
+      // Increment next derivation index in settings
+      gateways[asset].nextIndex = currentIndex + 1;
+      await prisma.paymentSettings.update({
+        where: { id: 'site' },
+        data: { paymentGateways: JSON.stringify(gateways) },
+      });
     }
 
-    // 4. Rate & Unique Amount Calculation with Collision Avoidance
+    if (!validateCryptoAddress(asset, derivedAddress)) {
+      return NextResponse.json({ error: `Derived address is invalid for ${asset}` }, { status: 500 });
+    }
+
+    // 5. Rate & Exact Amount Calculation (No atomic random offset required with unique address!)
     const rate = await getExchangeRate(asset);
-    
-    // Query active intents on same deposit address to avoid atomic collisions
-    const activeIntents = await prisma.paymentIntent.findMany({
-      where: {
-        depositAddress,
-        status: { in: ['PENDING', 'DETECTED'] },
-        expiresAt: { gt: new Date() },
-      },
-      select: { expectedAtomic: true },
-    });
-
-    const pendingAtomics = new Set(activeIntents.map((i) => i.expectedAtomic));
-    const uniqueResult = computeUniqueAmount(order.total, rate, asset, pendingAtomics);
+    const assetMeta = CRYPTO_ASSETS[asset];
+    const exactCrypto = (order.total / rate).toFixed(assetMeta.decimals);
+    const multiplier = Math.pow(10, assetMeta.decimals);
+    const exactAtomic = BigInt(Math.round(parseFloat(exactCrypto) * multiplier)).toString();
 
     const ttlHours = settings?.paymentIntentTtlHours || 48;
     const expiresAt = new Date(Date.now() + ttlHours * 60 * 60 * 1000);
 
-    // 5. Create or Upsert Payment Intent
+    // 6. Create or Upsert Payment Intent
     const intent = await prisma.paymentIntent.upsert({
       where: { orderId: order.id },
       update: {
         asset,
-        depositAddress,
-        expectedAmount: uniqueResult.expectedAmount,
-        expectedAtomic: uniqueResult.expectedAtomic,
-        uniqueSuffix: uniqueResult.uniqueSuffix,
+        depositAddress: derivedAddress,
+        addressIndex: derivedIndex,
+        expectedAmount: exactCrypto,
+        expectedAtomic: exactAtomic,
         baseTotalUsd: order.total,
         exchangeRate: rate,
         status: 'PENDING',
@@ -96,10 +105,10 @@ export async function POST(req: NextRequest) {
         orderId: order.id,
         userId: order.userId,
         asset,
-        depositAddress,
-        expectedAmount: uniqueResult.expectedAmount,
-        expectedAtomic: uniqueResult.expectedAtomic,
-        uniqueSuffix: uniqueResult.uniqueSuffix,
+        depositAddress: derivedAddress,
+        addressIndex: derivedIndex,
+        expectedAmount: exactCrypto,
+        expectedAtomic: exactAtomic,
         baseTotalUsd: order.total,
         exchangeRate: rate,
         status: 'PENDING',
@@ -107,7 +116,7 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    // Update order payment method reference
+    // Update order payment reference
     await prisma.order.update({
       where: { id: order.id },
       data: {

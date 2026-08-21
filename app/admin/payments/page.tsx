@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { CRYPTO_ASSETS, CryptoAssetId } from '@/lib/payments/types';
-import { ShieldCheck, Save, CheckCircle2, AlertCircle, RefreshCw, ExternalLink } from 'lucide-react';
+import { ShieldCheck, Save, CheckCircle2, AlertCircle, RefreshCw, ExternalLink, Key } from 'lucide-react';
 
 export default function AdminPaymentsPage() {
   const [gateways, setGateways] = useState<Record<string, any>>({});
@@ -42,12 +42,13 @@ export default function AdminPaymentsPage() {
     }));
   };
 
-  const handleAddressChange = (assetId: string, address: string) => {
+  const handleKeyChange = (assetId: string, keyOrAddress: string) => {
     setGateways((prev) => ({
       ...prev,
       [assetId]: {
         ...(prev[assetId] || {}),
-        address,
+        xpub: keyOrAddress,
+        address: keyOrAddress,
       },
     }));
   };
@@ -87,7 +88,7 @@ export default function AdminPaymentsPage() {
         <div>
           <h1 className="text-3xl font-bold text-white tracking-tight">Payments Hub</h1>
           <p className="text-xs text-zinc-400 mt-1">
-            Configure non-custodial cryptocurrency deposit addresses and inspect live on-chain intents.
+            Configure extended public keys (zpub / xpub) for unique per-order address derivation, or static wallet addresses.
           </p>
         </div>
 
@@ -115,13 +116,20 @@ export default function AdminPaymentsPage() {
 
       {/* Gateway Configuration Cards */}
       <div className="glass p-6 border border-white/8 rounded-2xl space-y-6">
-        <h3 className="text-sm font-bold text-white uppercase tracking-wider border-b border-white/8 pb-3">
-          Configured Deposit Wallets
-        </h3>
+        <div className="border-b border-white/8 pb-3">
+          <h3 className="text-sm font-bold text-white uppercase tracking-wider">
+            Supported Payment Gateways & Extended Keys
+          </h3>
+          <p className="text-xs text-zinc-400 mt-0.5">
+            Enter your BIP84 zpub (for Bitcoin Native SegWit bc1q...), xpub / Ltub (for Litecoin), or static address.
+          </p>
+        </div>
 
         <div className="space-y-4">
           {Object.entries(CRYPTO_ASSETS).map(([id, meta]) => {
-            const gw = gateways[id] || { enabled: false, address: '' };
+            const gw = gateways[id] || { enabled: false, xpub: '', address: '', nextIndex: 0 };
+            const keyVal = gw.xpub || gw.address || '';
+            const isExtendedKey = keyVal.startsWith('zpub') || keyVal.startsWith('xpub') || keyVal.startsWith('ypub') || keyVal.startsWith('Ltub');
 
             return (
               <div key={id} className="p-4 bg-white/[0.02] border border-white/6 rounded-xl space-y-3">
@@ -134,7 +142,14 @@ export default function AdminPaymentsPage() {
                       className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 bg-white/5 border-white/10"
                     />
                     <div>
-                      <span className="text-sm font-bold text-white block">{meta.name}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-bold text-white">{meta.name}</span>
+                        {isExtendedKey && (
+                          <span className="text-[10px] font-mono font-semibold bg-indigo-500/20 text-indigo-300 px-1.5 py-0.2 rounded border border-indigo-500/30 flex items-center gap-1">
+                            <Key className="w-2.5 h-2.5" /> BIP84 Auto-Derive (Index: {gw.nextIndex || 0})
+                          </span>
+                        )}
+                      </div>
                       <span className="text-[11px] text-zinc-500">{meta.network}</span>
                     </div>
                   </div>
@@ -143,13 +158,13 @@ export default function AdminPaymentsPage() {
 
                 <div>
                   <label className="text-[11px] text-zinc-400 block mb-1">
-                    Your Self-Custodial Deposit Address
+                    {id === 'btc' ? 'Bitcoin zpub (BIP84) or static address' : id === 'ltc' ? 'Litecoin xpub / Ltub or address' : `${meta.name} xpub or deposit address`}
                   </label>
                   <input
                     type="text"
-                    placeholder={`Enter ${meta.symbol} deposit address...`}
-                    value={gw.address || ''}
-                    onChange={(e) => handleAddressChange(id, e.target.value)}
+                    placeholder={`Enter ${meta.symbol} zpub/xpub or deposit address...`}
+                    value={keyVal}
+                    onChange={(e) => handleKeyChange(id, e.target.value)}
                     className="form-input text-xs font-mono select-all"
                   />
                 </div>
@@ -162,7 +177,7 @@ export default function AdminPaymentsPage() {
       {/* Live Payment Activity Ledger */}
       <div className="glass p-6 border border-white/8 rounded-2xl space-y-4">
         <h3 className="text-sm font-bold text-white uppercase tracking-wider border-b border-white/8 pb-3">
-          Recent Payment Activity Ledger
+          Live Payment Invoices & Derived Addresses
         </h3>
 
         {intents.length === 0 ? (
@@ -174,7 +189,8 @@ export default function AdminPaymentsPage() {
                 <tr>
                   <th className="py-2">Order</th>
                   <th className="py-2">Asset</th>
-                  <th className="py-2">Expected Amount</th>
+                  <th className="py-2">Derived Deposit Address</th>
+                  <th className="py-2">Amount</th>
                   <th className="py-2">Status</th>
                   <th className="py-2">Tx Hash</th>
                 </tr>
@@ -186,6 +202,14 @@ export default function AdminPaymentsPage() {
                     <tr key={intent.id}>
                       <td className="py-3 font-mono font-bold text-white">{intent.order?.orderNumber}</td>
                       <td className="py-3 uppercase font-mono text-indigo-400">{intent.asset}</td>
+                      <td className="py-3 font-mono text-zinc-300 truncate max-w-[180px] select-all">
+                        {intent.depositAddress}
+                        {intent.addressIndex !== null && intent.addressIndex !== undefined && (
+                          <span className="text-[10px] text-zinc-500 ml-1 font-mono">
+                            (#{intent.addressIndex})
+                          </span>
+                        )}
+                      </td>
                       <td className="py-3 font-mono text-zinc-200">{intent.expectedAmount}</td>
                       <td className="py-3">
                         <span className={`px-2 py-0.5 rounded-full font-semibold text-[10px] ${
@@ -200,12 +224,12 @@ export default function AdminPaymentsPage() {
                             href={meta ? meta.explorerTxUrl(intent.txHash) : '#'}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="text-indigo-400 hover:underline flex items-center gap-1 truncate max-w-[140px]"
+                            className="text-indigo-400 hover:underline flex items-center gap-1 truncate max-w-[130px]"
                           >
-                            {intent.txHash.slice(0, 10)}... <ExternalLink className="w-3 h-3" />
+                            {intent.txHash.slice(0, 8)}... <ExternalLink className="w-3 h-3" />
                           </a>
                         ) : (
-                          '—'
+                          'None'
                         )}
                       </td>
                     </tr>
